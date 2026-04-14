@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { setCorsHeaders, handleCors } from "@/lib/cors";
 import { updateLeadStatus } from "@/lib/services/actions";
 
-export async function OPTIONS(request: NextRequest) {
-  return handleCors(request);
+export async function OPTIONS() {
+  return new Response(null, { status: 204 });
 }
 
 export async function PATCH(

@@ -3,8 +3,8 @@ import { getLeads, createLead, updateLeadStatus } from "@/lib/services/actions";
 import { setCorsHeaders, handleCors } from "@/lib/cors";
 
 // Handle preflight requests
-export async function OPTIONS(request: NextRequest) {
-  return handleCors(request);
+export async function OPTIONS() {
+  return new Response(null, { status: 204 });
 }
 
 // GET leads (admin only, with pagination and filtering)

@@ -3,8 +3,8 @@ import { createComment, getComments, deleteComment } from "@/lib/services/action
 import { setCorsHeaders, handleCors } from "@/lib/cors";
 
 // Handle preflight requests
-export async function OPTIONS(request: NextRequest) {
-  return handleCors(request);
+export async function OPTIONS() {
+  return new Response(null, { status: 204 });
 }
 
 // GET comments for a product

@@ -3,8 +3,8 @@ import { createProduct, updateProduct, deleteProduct, getProducts } from "@/lib/
 import { setCorsHeaders, handleCors } from "@/lib/cors";
 
 // Handle preflight requests
-export async function OPTIONS(request: NextRequest) {
-  return handleCors(request);
+export async function OPTIONS() {
+  return new Response(null, { status: 204 });
 }
 
 // GET all products with pagination

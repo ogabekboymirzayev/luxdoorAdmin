@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { setCorsHeaders, handleCors } from "@/lib/cors";
 
 export async function OPTIONS() {
-  return new Response(null, { status: 204 })
+  return new Response(null, { status: 204 });
 }
 
 export async function GET(request: NextRequest) {
