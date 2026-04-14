@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { setCorsHeaders, handleCors } from "@/lib/cors";
 
-export async function OPTIONS(request: NextRequest) {
-  return handleCors(request);
+export async function OPTIONS() {
+  return new Response(null, { status: 204 })
 }
 
 export async function GET(request: NextRequest) {
