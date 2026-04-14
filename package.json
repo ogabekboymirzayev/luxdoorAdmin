@@ -1,0 +1,44 @@
+{
+  "name": "lux-door-dealer-hub-back",
+  "version": "1.0.0",
+  "description": "Production-ready backend for Lux Door Dealer Hub",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:push": "prisma db push",
+    "prisma:seed": "node prisma/seed.js",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.9.0",
+    "autoprefixer": "^10.4.27",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^1.40.0",
+    "decimal.js": "^10.6.0",
+    "lucide-react": "^1.8.0",
+    "next": "^14.2.0",
+    "next-auth": "^4.24.0",
+    "next-cloudinary": "^4.25.0",
+    "postcss": "^8.5.9",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "tailwindcss": "^3.4.1",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.4.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "eslint": "^8.56.0",
+    "eslint-config-next": "^14.2.0",
+    "prisma": "^5.9.0"
+  }
+}

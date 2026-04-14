@@ -1,0 +1,101 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for admin authentication
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String   // hashed with bcryptjs
+  role      UserRole @default(ADMIN)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([username])
+}
+
+enum UserRole {
+  SUPERADMIN
+  ADMIN
+}
+
+// Product categories with multilingual support
+model Category {
+  id        String   @id @default(cuid())
+  nameUz    String   // Uzbek name
+  nameRu    String   // Russian name
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  products  Product[]
+
+  @@index([nameUz, nameRu])
+}
+
+// Products with multilingual support and dynamic attributes
+model Product {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  nameUz        String
+  nameRu        String
+  descriptionUz String   @db.Text
+  descriptionRu String   @db.Text
+  price         Decimal  @db.Decimal(15, 2) // ✅ 10 dan 15 ga o'zgartirildi
+  categoryId    String
+  images        String[]
+  attributes    Json     @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  category  Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  comments  Comment[]
+
+  @@index([categoryId])
+  @@index([slug])
+  @@index([createdAt])
+}
+
+// Comments/Reviews with ratings
+model Comment {
+  id        String   @id @default(cuid())
+  productId String
+  text      String   @db.Text
+  rating    Int      // 1-5 stars
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([createdAt])
+}
+
+// Lead management model
+model Lead {
+  id        String     @id @default(cuid())
+  name      String
+  phone     String
+  message   String     @db.Text
+  status    LeadStatus @default(NOT_CALLED)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum LeadStatus {
+  NOT_CALLED
+  CALLED
+}
