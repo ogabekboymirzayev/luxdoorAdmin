@@ -49,7 +49,7 @@ export default function LoginPage() {
             <Lock className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-            Lux Door
+            Musa Door
           </h1>
           <p className="text-slate-600 mt-2">Admin Panel Login</p>
         </div>
@@ -133,7 +133,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p className="text-center text-slate-600 text-sm mt-6">
-          © 2026 Lux Door. All rights reserved.
+          © 2026 Musa Door. All rights reserved.
         </p>
       </div>
     </div>
