@@ -4,6 +4,70 @@ import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth/password";
 import type { NextAuthOptions } from "next-auth";
 
+type LoginAttemptState = {
+  count: number;
+  firstAttemptAt: number;
+  blockedUntil?: number;
+};
+
+const MAX_ATTEMPTS = 5;
+const WINDOW_MS = 10 * 60 * 1000;
+const BLOCK_MS = 15 * 60 * 1000;
+
+const globalAuthState = globalThis as unknown as {
+  __luxdoorLoginAttempts?: Map<string, LoginAttemptState>;
+};
+
+const loginAttempts = globalAuthState.__luxdoorLoginAttempts || new Map<string, LoginAttemptState>();
+globalAuthState.__luxdoorLoginAttempts = loginAttempts;
+
+function checkAuthRateLimit(key: string): { blocked: boolean; retryAfterSec?: number } {
+  const current = loginAttempts.get(key);
+  const now = Date.now();
+
+  if (!current) {
+    return { blocked: false };
+  }
+
+  if (current.blockedUntil && current.blockedUntil > now) {
+    return {
+      blocked: true,
+      retryAfterSec: Math.ceil((current.blockedUntil - now) / 1000),
+    };
+  }
+
+  if (current.firstAttemptAt + WINDOW_MS < now) {
+    loginAttempts.delete(key);
+    return { blocked: false };
+  }
+
+  return { blocked: false };
+}
+
+function registerFailedAttempt(key: string) {
+  const now = Date.now();
+  const current = loginAttempts.get(key);
+
+  if (!current || current.firstAttemptAt + WINDOW_MS < now) {
+    loginAttempts.set(key, {
+      count: 1,
+      firstAttemptAt: now,
+    });
+    return;
+  }
+
+  const nextCount = current.count + 1;
+  loginAttempts.set(key, {
+    ...current,
+    count: nextCount,
+    blockedUntil: nextCount >= MAX_ATTEMPTS ? now + BLOCK_MS : current.blockedUntil,
+  });
+}
+
+function clearAttempts(key: string) {
+  loginAttempts.delete(key);
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -19,6 +83,12 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid credentials");
         }
 
+        const loginKey = credentials.username.trim().toLowerCase();
+        const rateState = checkAuthRateLimit(loginKey);
+        if (rateState.blocked) {
+          throw new Error(`Too many attempts. Try again in ${rateState.retryAfterSec || 60}s`);
+        }
+
         try {
           // Find user by username
           const user = await prisma.user.findUnique({
@@ -26,6 +96,7 @@ export const authOptions: NextAuthOptions = {
           });
 
           if (!user) {
+            registerFailedAttempt(loginKey);
             throw new Error("Invalid credentials");
           }
 
@@ -36,8 +107,11 @@ export const authOptions: NextAuthOptions = {
           );
 
           if (!isPasswordValid) {
+            registerFailedAttempt(loginKey);
             throw new Error("Invalid credentials");
           }
+
+          clearAttempts(loginKey);
 
           // Return user object (without password)
           return {

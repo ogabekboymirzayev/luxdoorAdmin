@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateProduct, deleteProduct, getProduct } from "@/lib/services/actions";
-import { setCorsHeaders, handleCors } from "@/lib/cors";
+import { updateProduct, deleteProduct, getProduct, restoreProduct } from "@/lib/services/actions";
+import { setCorsHeaders } from "@/lib/cors";
 
 // Handle preflight requests
 export async function OPTIONS() {
@@ -59,6 +59,36 @@ export async function DELETE(
 ) {
   try {
     const result = await deleteProduct(params.id);
+
+    if (!result.success) {
+      return setCorsHeaders(
+        NextResponse.json(result, { status: 400 })
+      );
+    }
+
+    return setCorsHeaders(NextResponse.json(result));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Server error";
+    return setCorsHeaders(
+      NextResponse.json({ success: false, error: message }, { status: 500 })
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const body = await request.json().catch(() => ({}));
+
+    if (body?.action !== "restore") {
+      return setCorsHeaders(
+        NextResponse.json({ success: false, error: "Unsupported action" }, { status: 400 })
+      );
+    }
+
+    const result = await restoreProduct(params.id);
 
     if (!result.success) {
       return setCorsHeaders(

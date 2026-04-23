@@ -13,7 +13,15 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "10");
-    const status = searchParams.get("status") as "NOT_CALLED" | "CALLED" | null;
+    const status = searchParams.get("status") as
+      | "NEW"
+      | "CONTACTED"
+      | "NEGOTIATION"
+      | "WON"
+      | "LOST"
+      | "NOT_CALLED"
+      | "CALLED"
+      | null;
 
     const result = await getLeads(page, limit, status || undefined);
 
@@ -30,11 +38,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const result = await createLead(body);
+    const forwarded = request.headers.get("x-forwarded-for");
+    const clientIp = (forwarded?.split(",")[0] || request.headers.get("x-real-ip") || "").trim();
+    const result = await createLead({ ...body, clientIp });
 
     if (!result.success) {
+      const status = result.code === "RATE_LIMITED"
+        ? 429
+        : result.code === "DUPLICATE_LEAD"
+          ? 409
+          : 400;
+
       return setCorsHeaders(
-        NextResponse.json(result, { status: 400 })
+        NextResponse.json(result, { status })
       );
     }
 

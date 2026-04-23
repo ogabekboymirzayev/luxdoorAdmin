@@ -11,7 +11,9 @@ import {
   CategorySchema
 } from "@/lib/validators";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { notifyNewLead } from "@/lib/services/notifications";
 import type { Prisma } from "@prisma/client";
+import { createHash } from "crypto";
 
 // ============ RESPONSE TYPES ============
 
@@ -19,6 +21,59 @@ interface ServerActionResponse<T> {
   success: boolean;
   data?: T;
   error?: string;
+  code?: string;
+}
+
+function normalizePhone(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+
+  // Accept +998XXXXXXXXX, 998XXXXXXXXX, or local 9-digit numbers.
+  if (digits.length === 12 && digits.startsWith("998")) {
+    return `+${digits}`;
+  }
+
+  if (digits.length === 9) {
+    return `+998${digits}`;
+  }
+
+  return null;
+}
+
+function hashIp(ip: string): string {
+  const salt = process.env.LEAD_RATE_LIMIT_SALT || "luxdoor-default-salt";
+  return createHash("sha256").update(`${ip}:${salt}`).digest("hex");
+}
+
+async function getAuditActor() {
+  const session = await getCurrentSession();
+  return {
+    actorId: (session?.user as any)?.id as string | undefined,
+    actorUsername: (session?.user as any)?.username as string | undefined,
+  };
+}
+
+async function createAuditLog(
+  entityType: string,
+  entityId: string,
+  action: string,
+  metadata?: Record<string, unknown>
+) {
+  try {
+    const actor = await getAuditActor();
+    await prisma.auditLog.create({
+      data: {
+        entityType,
+        entityId,
+        action,
+        actorId: actor.actorId,
+        actorUsername: actor.actorUsername,
+        metadata: metadata || undefined,
+      },
+    });
+  } catch (error) {
+    // Audit logging must never break business flow.
+    console.error("[AUDIT] Failed to write log:", error);
+  }
 }
 
 // ============ PRODUCT ACTIONS ============
@@ -42,6 +97,10 @@ export async function createProduct(
         descriptionUz: validated.descriptionUz,
         descriptionRu: validated.descriptionRu,
         price: parseFloat(validated.price.toString()),
+        oldPrice: validated.oldPrice ? parseFloat(validated.oldPrice.toString()) : null,
+        badgeType: validated.badgeType || "NONE",
+        badgeTextUz: validated.badgeTextUz || null,
+        badgeTextRu: validated.badgeTextRu || null,
         categoryId: validated.categoryId,
         images: validated.images || [],
         attributes: validated.attributes || {}
@@ -52,6 +111,10 @@ export async function createProduct(
     });
 
     console.log(`[PRODUCTS] Product created: ${product.id}`);
+    await createAuditLog("PRODUCT", product.id, "CREATE", {
+      nameUz: product.nameUz,
+      categoryId: product.categoryId,
+    });
 
     return {
       success: true,
@@ -81,15 +144,29 @@ export async function updateProduct(
     const slug = validated.slug || validated.nameRu.replace(/\s+/g, '-');
 
     // Try to find by ID first, then by slug
-    let whereClause: any = { id };
-    let existingProduct = await prisma.product.findUnique({ where: { id } });
-    
+    const existingProduct = await prisma.product.findFirst({
+      where: {
+        OR: [{ id }, { slug: id }],
+      },
+      select: { id: true, deletedAt: true },
+    });
+
     if (!existingProduct) {
-      whereClause = { slug: id };
+      return {
+        success: false,
+        error: "Product not found",
+      };
+    }
+
+    if (existingProduct.deletedAt) {
+      return {
+        success: false,
+        error: "Cannot update archived product. Restore it first.",
+      };
     }
 
     const product = await prisma.product.update({
-      where: whereClause,
+      where: { id: existingProduct.id },
       data: {
         slug,
         nameUz: validated.nameUz,
@@ -97,6 +174,10 @@ export async function updateProduct(
         descriptionUz: validated.descriptionUz,
         descriptionRu: validated.descriptionRu,
         price: validated.price.toString(),
+        oldPrice: validated.oldPrice ? validated.oldPrice.toString() : null,
+        badgeType: validated.badgeType || "NONE",
+        badgeTextUz: validated.badgeTextUz || null,
+        badgeTextRu: validated.badgeTextRu || null,
         categoryId: validated.categoryId,
         images: validated.images || [],
         attributes: validated.attributes || {}
@@ -107,6 +188,10 @@ export async function updateProduct(
     });
 
     console.log(`[PRODUCTS] Product updated: ${id}`);
+    await createAuditLog("PRODUCT", product.id, "UPDATE", {
+      nameUz: product.nameUz,
+      categoryId: product.categoryId,
+    });
 
     return {
       success: true,
@@ -129,19 +214,37 @@ export async function deleteProduct(
   try {
     await requireRole("ADMIN");
 
-    // Try to find by ID first, then by slug
-    let whereClause: any = { id };
-    const existingProduct = await prisma.product.findUnique({ where: { id } });
-    
+    const existingProduct = await prisma.product.findFirst({
+      where: {
+        OR: [{ id }, { slug: id }],
+      },
+      select: { id: true, deletedAt: true },
+    });
+
     if (!existingProduct) {
-      whereClause = { slug: id };
+      return {
+        success: false,
+        error: "Product not found",
+      };
     }
 
-    await prisma.product.delete({
-      where: whereClause
+    if (existingProduct.deletedAt) {
+      return {
+        success: true,
+      };
+    }
+
+    const actor = await getAuditActor();
+    await prisma.product.update({
+      where: { id: existingProduct.id },
+      data: {
+        deletedAt: new Date(),
+        deletedBy: actor.actorUsername || actor.actorId || "system",
+      }
     });
 
     console.log(`[PRODUCTS] Product deleted: ${id}`);
+    await createAuditLog("PRODUCT", existingProduct.id, "SOFT_DELETE");
 
     return { success: true };
   } catch (error) {
@@ -155,13 +258,64 @@ export async function deleteProduct(
   }
 }
 
+export async function restoreProduct(
+  id: string
+): Promise<ServerActionResponse<void>> {
+  try {
+    await requireRole("ADMIN");
+
+    const existingProduct = await prisma.product.findFirst({
+      where: {
+        OR: [{ id }, { slug: id }],
+      },
+      select: { id: true, deletedAt: true },
+    });
+
+    if (!existingProduct) {
+      return {
+        success: false,
+        error: "Product not found",
+      };
+    }
+
+    if (!existingProduct.deletedAt) {
+      return { success: true };
+    }
+
+    await prisma.product.update({
+      where: { id: existingProduct.id },
+      data: {
+        deletedAt: null,
+        deletedBy: null,
+      },
+    });
+
+    await createAuditLog("PRODUCT", existingProduct.id, "RESTORE");
+
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to restore product";
+    console.error("[PRODUCTS] Restore error:", message);
+
+    return {
+      success: false,
+      error: message,
+    };
+  }
+}
+
 export async function getProduct(
   id: string
 ): Promise<ServerActionResponse<any>> {
   try {
-    // Try to find by ID first, then by slug
-    let product = await prisma.product.findUnique({
-      where: { id },
+    const product = await prisma.product.findFirst({
+      where: {
+        OR: [{ id }, { slug: id }],
+        deletedAt: null,
+        category: {
+          deletedAt: null,
+        },
+      },
       include: {
         category: true,
         comments: {
@@ -170,19 +324,6 @@ export async function getProduct(
       }
     });
 
-    // If not found by ID, try to find by slug
-    if (!product) {
-      product = await prisma.product.findUnique({
-        where: { slug: id },
-        include: {
-          category: true,
-          comments: {
-            orderBy: { createdAt: "desc" }
-          }
-        }
-      });
-    }
-
     if (!product) {
       return {
         success: false,
@@ -190,9 +331,38 @@ export async function getProduct(
       };
     }
 
+    const relatedProducts = await prisma.product.findMany({
+      where: {
+        id: { not: product.id },
+        categoryId: product.categoryId,
+        deletedAt: null,
+      },
+      include: {
+        category: true,
+        comments: {
+          take: 3,
+          orderBy: { createdAt: "desc" }
+        }
+      },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+    });
+
+    const ratingCount = product.comments.length;
+    const ratingAverage = ratingCount > 0
+      ? product.comments.reduce((sum, c) => sum + c.rating, 0) / ratingCount
+      : 0;
+
     return {
       success: true,
-      data: product
+      data: {
+        ...product,
+        ratingSummary: {
+          average: Number(ratingAverage.toFixed(1)),
+          count: ratingCount,
+        },
+        relatedProducts,
+      }
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fetch product";
@@ -208,14 +378,59 @@ export async function getProduct(
 export async function getProducts(
   page: number = 1,
   limit: number = 10,
-  categoryId?: string
+  filters?: {
+    categoryId?: string;
+    categoryIds?: string[];
+    search?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    sort?: "default" | "price-asc" | "price-desc";
+    includeDeleted?: boolean;
+  }
 ): Promise<ServerActionResponse<any>> {
   try {
     const skip = (page - 1) * limit;
+    const categoryIds = filters?.categoryIds?.filter(Boolean) || [];
+    const hasCategoryFilter = Boolean(filters?.categoryId) || categoryIds.length > 0;
+    const search = filters?.search?.trim();
 
-    const where: Prisma.ProductWhereInput = categoryId
-      ? { categoryId }
-      : {};
+    const where: Prisma.ProductWhereInput = {
+      ...(filters?.includeDeleted ? {} : { deletedAt: null }),
+      ...(filters?.includeDeleted ? {} : { category: { deletedAt: null } }),
+      ...(hasCategoryFilter
+        ? {
+            categoryId: filters?.categoryId
+              ? filters.categoryId
+              : { in: categoryIds }
+          }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              { nameUz: { contains: search, mode: "insensitive" } },
+              { nameRu: { contains: search, mode: "insensitive" } },
+              { descriptionUz: { contains: search, mode: "insensitive" } },
+              { descriptionRu: { contains: search, mode: "insensitive" } },
+              { slug: { contains: search, mode: "insensitive" } },
+            ]
+          }
+        : {}),
+      ...((filters?.minPrice !== undefined || filters?.maxPrice !== undefined)
+        ? {
+            price: {
+              ...(filters?.minPrice !== undefined ? { gte: filters.minPrice } : {}),
+              ...(filters?.maxPrice !== undefined ? { lte: filters.maxPrice } : {}),
+            }
+          }
+        : {}),
+    };
+
+    const orderBy: Prisma.ProductOrderByWithRelationInput =
+      filters?.sort === "price-asc"
+        ? { price: "asc" }
+        : filters?.sort === "price-desc"
+          ? { price: "desc" }
+          : { createdAt: "desc" };
 
     const [products, total] = await Promise.all([
       prisma.product.findMany({
@@ -229,7 +444,7 @@ export async function getProducts(
             orderBy: { createdAt: "desc" }
           }
         },
-        orderBy: { createdAt: "desc" }
+        orderBy
       }),
       prisma.product.count({ where })
     ]);
@@ -268,6 +483,7 @@ export async function createComment(
     const comment = await prisma.comment.create({
       data: {
         productId: validated.productId,
+        authorName: validated.authorName,
         text: validated.text,
         rating: validated.rating
       },
@@ -366,13 +582,74 @@ export async function createLead(
   try {
     const validated = LeadSchema.parse(input);
 
+    const normalizedPhone = normalizePhone(validated.phone);
+    if (!normalizedPhone) {
+      return {
+        success: false,
+        error: "Phone must be a valid Uzbekistan number",
+        code: "INVALID_PHONE"
+      };
+    }
+
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+    const ip = typeof (input as any)?.clientIp === "string" ? (input as any).clientIp : "";
+    const ipHashed = ip ? hashIp(ip) : null;
+
+    // Hard cap bursts from same IP.
+    if (ipHashed) {
+      const ipBurst = await prisma.lead.count({
+        where: {
+          ipHash: ipHashed,
+          createdAt: { gte: oneMinuteAgo }
+        }
+      });
+
+      if (ipBurst >= 3) {
+        return {
+          success: false,
+          error: "Too many requests. Please wait a minute and try again.",
+          code: "RATE_LIMITED"
+        };
+      }
+    }
+
+    // Block duplicate same-phone leads in short windows.
+    const recentPhoneLead = await prisma.lead.findFirst({
+      where: {
+        phone: normalizedPhone,
+        createdAt: { gte: tenMinutesAgo }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (recentPhoneLead) {
+      return {
+        success: false,
+        error: "This phone number already submitted a recent request. Please wait a bit.",
+        code: "DUPLICATE_LEAD"
+      };
+    }
+
     const lead = await prisma.lead.create({
       data: {
         name: validated.name,
-        phone: validated.phone,
+        phone: normalizedPhone,
         message: validated.message,
-        status: "NOT_CALLED"
+        source: validated.source || "website",
+        status: "NEW",
+        ipHash: ipHashed
       }
+    });
+
+    // Non-blocking notification path.
+    void notifyNewLead({
+      id: lead.id,
+      name: lead.name,
+      phone: lead.phone,
+      message: lead.message,
+      source: lead.source,
+      createdAt: lead.createdAt
     });
 
     console.log(`[LEADS] Lead created: ${lead.id}`);
@@ -400,9 +677,24 @@ export async function updateLeadStatus(
 
     const validated = UpdateLeadStatusSchema.parse(input);
 
+    const updateData: Prisma.LeadUpdateInput = {
+      status: validated.status,
+      lastContactedAt: new Date()
+    };
+
+    if (typeof validated.notes === "string") {
+      updateData.notes = validated.notes;
+    }
+
+    if (validated.nextFollowUpAt !== undefined) {
+      updateData.nextFollowUpAt = validated.nextFollowUpAt
+        ? new Date(validated.nextFollowUpAt)
+        : null;
+    }
+
     const lead = await prisma.lead.update({
       where: { id: validated.id },
-      data: { status: validated.status }
+      data: updateData
     });
 
     console.log(`[LEADS] Lead status updated: ${validated.id} -> ${validated.status}`);
@@ -425,7 +717,7 @@ export async function updateLeadStatus(
 export async function getLeads(
   page: number = 1,
   limit: number = 10,
-  status?: "NOT_CALLED" | "CALLED"
+  status?: "NEW" | "CONTACTED" | "NEGOTIATION" | "WON" | "LOST" | "NOT_CALLED" | "CALLED"
 ): Promise<ServerActionResponse<any>> {
   try {
     await requireRole("ADMIN");
@@ -591,6 +883,47 @@ export async function getAdmins(): Promise<ServerActionResponse<any>> {
   }
 }
 
+export async function getAuditLogs(
+  page: number = 1,
+  limit: number = 30
+): Promise<ServerActionResponse<any>> {
+  try {
+    await requireRole("ADMIN");
+
+    const skip = (page - 1) * limit;
+
+    const [logs, total] = await Promise.all([
+      prisma.auditLog.findMany({
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.auditLog.count(),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        logs,
+        pagination: {
+          total,
+          page,
+          limit,
+          pages: Math.ceil(total / limit),
+        },
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to fetch audit logs";
+    console.error("[AUDIT] Fetch error:", message);
+
+    return {
+      success: false,
+      error: message,
+    };
+  }
+}
+
 // ============ CATEGORY ACTIONS ============
 
 export async function createCategory(
@@ -609,6 +942,9 @@ export async function createCategory(
     });
 
     console.log(`[CATEGORIES] Category created: ${category.id}`);
+    await createAuditLog("CATEGORY", category.id, "CREATE", {
+      nameUz: category.nameUz,
+    });
 
     return {
       success: true,
@@ -625,10 +961,24 @@ export async function createCategory(
   }
 }
 
-export async function getCategories(): Promise<ServerActionResponse<any>> {
+export async function getCategories(
+  includeDeleted: boolean = false
+): Promise<ServerActionResponse<any>> {
   try {
     const categories = await prisma.category.findMany({
-      orderBy: { createdAt: "asc" }
+      where: includeDeleted ? {} : { deletedAt: null },
+      orderBy: { createdAt: "asc" },
+      include: {
+        _count: {
+          select: {
+            products: {
+              where: {
+                deletedAt: null,
+              },
+            },
+          },
+        },
+      },
     });
 
     return {
@@ -642,6 +992,110 @@ export async function getCategories(): Promise<ServerActionResponse<any>> {
     return {
       success: false,
       error: message
+    };
+  }
+}
+
+export async function deleteCategory(
+  id: string
+): Promise<ServerActionResponse<void>> {
+  try {
+    await requireRole("ADMIN");
+
+    const category = await prisma.category.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            products: {
+              where: { deletedAt: null },
+            },
+          },
+        },
+      },
+    });
+
+    if (!category) {
+      return {
+        success: false,
+        error: "Category not found",
+      };
+    }
+
+    if (category._count.products > 0) {
+      return {
+        success: false,
+        error: "Category contains active products",
+      };
+    }
+
+    if (category.deletedAt) {
+      return { success: true };
+    }
+
+    const actor = await getAuditActor();
+    await prisma.category.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        deletedBy: actor.actorUsername || actor.actorId || "system",
+      },
+    });
+
+    await createAuditLog("CATEGORY", id, "SOFT_DELETE");
+
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete category";
+    console.error("[CATEGORIES] Delete error:", message);
+
+    return {
+      success: false,
+      error: message,
+    };
+  }
+}
+
+export async function restoreCategory(
+  id: string
+): Promise<ServerActionResponse<void>> {
+  try {
+    await requireRole("ADMIN");
+
+    const category = await prisma.category.findUnique({
+      where: { id },
+      select: { id: true, deletedAt: true },
+    });
+
+    if (!category) {
+      return {
+        success: false,
+        error: "Category not found",
+      };
+    }
+
+    if (!category.deletedAt) {
+      return { success: true };
+    }
+
+    await prisma.category.update({
+      where: { id },
+      data: {
+        deletedAt: null,
+        deletedBy: null,
+      },
+    });
+
+    await createAuditLog("CATEGORY", id, "RESTORE");
+
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to restore category";
+    console.error("[CATEGORIES] Restore error:", message);
+
+    return {
+      success: false,
+      error: message,
     };
   }
 }

@@ -1,20 +1,26 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, Search, X, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Edit2, Search, X, AlertTriangle, RotateCcw } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+const MAX_PRODUCT_IMAGES = 4;
 
 interface Product {
   id: string;
   nameUz: string;
   nameRu: string;
   price: string;
+  oldPrice?: string | null;
+  badgeType?: "NONE" | "SALE" | "NEW" | "HIT";
+  badgeTextUz?: string | null;
+  badgeTextRu?: string | null;
   categoryId: string;
   images: string[];
   descriptionUz: string;
   descriptionRu: string;
   attributes: Record<string, string>;
+  deletedAt?: string | null;
   category?: { id: string; nameUz: string; nameRu: string };
 }
 
@@ -38,6 +44,10 @@ const emptyForm = {
   descriptionUz: "",
   descriptionRu: "",
   price: "",
+  oldPrice: "",
+  badgeType: "NONE" as "NONE" | "SALE" | "NEW" | "HIT",
+  badgeTextUz: "",
+  badgeTextRu: "",
   categoryId: "",
   images: [] as string[],
   attributes: {} as Record<string, string>,
@@ -60,8 +70,8 @@ export default function ProductsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [form, setForm] = useState(emptyForm);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [newImagePreviews, setNewImagePreviews] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [attrKeyUz, setAttrKeyUz] = useState("");
   const [attrKeyRu, setAttrKeyRu] = useState("");
@@ -70,9 +80,9 @@ export default function ProductsPage() {
   const [dialog, setDialog] = useState<DialogState>({
     open: false, type: "error", title: "", message: ""
   });
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
-    fetchProducts();
     fetchCategories();
   }, []);
 
@@ -87,7 +97,7 @@ export default function ProductsPage() {
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/products?limit=100`, { credentials: "include" });
+      const res = await fetch(`${API_URL}/api/products?limit=100${showArchived ? "&includeDeleted=1" : ""}`, { credentials: "include" });
       const data = await res.json();
       if (data.success) setProducts(data.data.products);
     } catch (err) {
@@ -96,6 +106,10 @@ export default function ProductsPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchProducts();
+  }, [showArchived]);
 
   const fetchCategories = async () => {
     try {
@@ -110,8 +124,8 @@ export default function ProductsPage() {
   const openAdd = () => {
     setEditProduct(null);
     setForm(emptyForm);
-    setImageFile(null);
-    setImagePreview(null);
+    setImageFiles([]);
+    setNewImagePreviews([]);
     setModalOpen(true);
   };
 
@@ -123,26 +137,55 @@ export default function ProductsPage() {
       descriptionUz: product.descriptionUz,
       descriptionRu: product.descriptionRu,
       price: product.price,
+      oldPrice: product.oldPrice || "",
+      badgeType: product.badgeType || "NONE",
+      badgeTextUz: product.badgeTextUz || "",
+      badgeTextRu: product.badgeTextRu || "",
       categoryId: product.categoryId,
       images: product.images,
       attributes: product.attributes || {},
     });
-    setImagePreview(
-      product.images?.[0]
-        ? product.images[0].startsWith("http")
-          ? product.images[0]
-          : `${API_URL}${product.images[0]}`
-        : null
-    );
-    setImageFile(null);
+    setImageFiles([]);
+    setNewImagePreviews([]);
     setModalOpen(true);
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
+    const selectedFiles = Array.from(e.target.files || []);
+    if (!selectedFiles.length) return;
+
+    const remainingSlots = MAX_PRODUCT_IMAGES - (form.images.length + imageFiles.length);
+    if (remainingSlots <= 0) {
+      showError("Limit", `Har bir mahsulot uchun maksimal ${MAX_PRODUCT_IMAGES} ta rasm yuklash mumkin`);
+      e.target.value = "";
+      return;
+    }
+
+    const filesToAdd = selectedFiles.slice(0, remainingSlots);
+    if (filesToAdd.length < selectedFiles.length) {
+      showError("Limit", `Faqat ${remainingSlots} ta rasm qo'shish mumkin`);
+    }
+
+    setImageFiles((prev) => [...prev, ...filesToAdd]);
+    setNewImagePreviews((prev) => [...prev, ...filesToAdd.map((file) => URL.createObjectURL(file))]);
+    e.target.value = "";
+  };
+
+  const removeExistingImage = (index: number) => {
+    setForm((prev) => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index),
+    }));
+  };
+
+  const removeNewImage = (index: number) => {
+    setImageFiles((prev) => prev.filter((_, i) => i !== index));
+    setNewImagePreviews((prev) => {
+      const next = [...prev];
+      const [removedUrl] = next.splice(index, 1);
+      if (removedUrl) URL.revokeObjectURL(removedUrl);
+      return next;
+    });
   };
 
   const uploadImage = async (file: File): Promise<string | null> => {
@@ -167,19 +210,40 @@ export default function ProductsPage() {
       showError("Xato", "Barcha majburiy maydonlarni to'ldiring");
       return;
     }
+
+    if (form.oldPrice && Number(form.oldPrice) < Number(form.price)) {
+      showError("Xato", "Eski narx joriy narxdan kichik bo'lmasligi kerak");
+      return;
+    }
+
     try {
       setSaving(true);
-      let images = form.images;
-      if (imageFile) {
-        const url = await uploadImage(imageFile);
-        if (url) images = [url];
+      let images = [...form.images];
+      if (imageFiles.length) {
+        const uploadedImages = await Promise.all(imageFiles.map((file) => uploadImage(file)));
+        const failedUploads = uploadedImages.some((url) => !url);
+        if (failedUploads) {
+          showError("Xato", "Rasmlardan biri yuklanmadi. Qayta urinib ko'ring");
+          return;
+        }
+        images = [...images, ...(uploadedImages as string[])];
       }
+
+      if (images.length > MAX_PRODUCT_IMAGES) {
+        showError("Limit", `Har bir mahsulot uchun maksimal ${MAX_PRODUCT_IMAGES} ta rasm ruxsat etiladi`);
+        return;
+      }
+
       const body = {
         nameUz: form.nameUz,
         nameRu: form.nameRu,
         descriptionUz: form.descriptionUz,
         descriptionRu: form.descriptionRu,
         price: Number(form.price),
+        oldPrice: form.oldPrice ? Number(form.oldPrice) : null,
+        badgeType: form.badgeType,
+        badgeTextUz: form.badgeTextUz.trim() || null,
+        badgeTextRu: form.badgeTextRu.trim() || null,
         categoryId: form.categoryId,
         images,
         attributes: form.attributes,
@@ -196,6 +260,11 @@ export default function ProductsPage() {
       const data = await res.json();
       if (data.success) {
         setModalOpen(false);
+        setImageFiles([]);
+        setNewImagePreviews((prev) => {
+          prev.forEach((url) => URL.revokeObjectURL(url));
+          return [];
+        });
         fetchProducts();
       } else {
         showError("Xato", data.error || "Xato yuz berdi");
@@ -225,6 +294,21 @@ export default function ProductsPage() {
         }
       }
     );
+  };
+
+  const handleRestore = async (id: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/products/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restore" }),
+      });
+      const data = await res.json();
+      if (data.success) fetchProducts();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const addAttribute = () => {
@@ -276,6 +360,11 @@ export default function ProductsPage() {
           className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary outline-none transition" />
       </div>
 
+      <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+        Archived mahsulotlarni ko'rsatish
+      </label>
+
       {/* Table */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
@@ -299,10 +388,19 @@ export default function ProductsPage() {
                     : `${API_URL}${product.images[0]}`
                   : null;
                 return (
-                  <tr key={product.id} className="hover:bg-slate-50 transition">
+                  <tr key={product.id} className={`hover:bg-slate-50 transition ${product.deletedAt ? "opacity-60" : ""}`}>
                     <td className="px-6 py-4 text-sm text-slate-900 font-medium">{product.nameUz}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">{product.nameRu}</td>
-                    <td className="px-6 py-4 text-sm font-semibold">{Number(product.price).toLocaleString("uz-UZ")} so'm</td>
+                    <td className="px-6 py-4 text-sm font-semibold">
+                      <div className="flex flex-col">
+                        <span>{Number(product.price).toLocaleString("uz-UZ")} so'm</span>
+                        {product.oldPrice && (
+                          <span className="text-xs text-slate-400 line-through">
+                            {Number(product.oldPrice).toLocaleString("uz-UZ")} so'm
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-6 py-4">
                       {imgUrl
                         ? <img src={imgUrl} alt={product.nameUz} className="w-10 h-10 rounded object-cover" />
@@ -311,12 +409,20 @@ export default function ProductsPage() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2">
-                        <button onClick={() => openEdit(product)} className="p-2 hover:bg-blue-50 text-blue-600 rounded transition">
-                          <Edit2 size={18} />
-                        </button>
-                        <button onClick={() => handleDelete(product.id)} className="p-2 hover:bg-red-50 text-red-600 rounded transition">
-                          <Trash2 size={18} />
-                        </button>
+                        {!product.deletedAt && (
+                          <button onClick={() => openEdit(product)} className="p-2 hover:bg-blue-50 text-blue-600 rounded transition">
+                            <Edit2 size={18} />
+                          </button>
+                        )}
+                        {product.deletedAt ? (
+                          <button onClick={() => handleRestore(product.id)} className="p-2 hover:bg-emerald-50 text-emerald-600 rounded transition">
+                            <RotateCcw size={18} />
+                          </button>
+                        ) : (
+                          <button onClick={() => handleDelete(product.id)} className="p-2 hover:bg-red-50 text-red-600 rounded transition">
+                            <Trash2 size={18} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -422,6 +528,28 @@ export default function ProductsPage() {
                     placeholder="750000" />
                 </div>
                 <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1 block">Eski narx (aksiya uchun)</label>
+                  <input type="number" value={form.oldPrice} onChange={(e) => setForm({ ...form, oldPrice: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="850000" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1 block">Badge turi</label>
+                  <select
+                    value={form.badgeType}
+                    onChange={(e) => setForm({ ...form, badgeType: e.target.value as "NONE" | "SALE" | "NEW" | "HIT" })}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="NONE">Yo'q</option>
+                    <option value="SALE">Aksiya</option>
+                    <option value="NEW">Yangi</option>
+                    <option value="HIT">Hit</option>
+                  </select>
+                </div>
+                <div>
                   <label className="text-sm font-medium text-slate-700 mb-1 block">Kategoriya *</label>
                   <select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary">
@@ -433,12 +561,75 @@ export default function ProductsPage() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1 block">Badge matni (UZ)</label>
+                  <input value={form.badgeTextUz} onChange={(e) => setForm({ ...form, badgeTextUz: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="Aksiya" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 mb-1 block">Badge matni (RU)</label>
+                  <input value={form.badgeTextRu} onChange={(e) => setForm({ ...form, badgeTextRu: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="Акция" />
+                </div>
+              </div>
+
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-1 block">Rasm</label>
-                <input type="file" accept="image/*" onChange={handleImageChange}
+                <label className="text-sm font-medium text-slate-700 mb-1 block">Rasmlar (maksimal 4 ta)</label>
+                <input type="file" accept="image/*" multiple onChange={handleImageChange}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
-                {imagePreview && (
-                  <img src={imagePreview} alt="preview" className="mt-2 w-32 h-32 object-cover rounded-lg" />
+
+                {(form.images.length > 0 || newImagePreviews.length > 0) && (
+                  <div className="mt-3 space-y-3">
+                    {form.images.length > 0 && (
+                      <div>
+                        <p className="text-xs text-slate-500 mb-2">Mavjud rasmlar</p>
+                        <div className="grid grid-cols-4 gap-2">
+                          {form.images.map((image, index) => {
+                            const previewUrl = image.startsWith("http") ? image : `${API_URL}${image}`;
+                            return (
+                              <div key={`${image}-${index}`} className="relative group">
+                                <img src={previewUrl} alt={`existing-${index + 1}`} className="w-full h-20 object-cover rounded-lg border border-slate-200" />
+                                <button
+                                  type="button"
+                                  onClick={() => removeExistingImage(index)}
+                                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow hover:bg-red-600"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {newImagePreviews.length > 0 && (
+                      <div>
+                        <p className="text-xs text-slate-500 mb-2">Yangi yuklanayotgan rasmlar</p>
+                        <div className="grid grid-cols-4 gap-2">
+                          {newImagePreviews.map((preview, index) => (
+                            <div key={`${preview}-${index}`} className="relative group">
+                              <img src={preview} alt={`new-${index + 1}`} className="w-full h-20 object-cover rounded-lg border border-slate-200" />
+                              <button
+                                type="button"
+                                onClick={() => removeNewImage(index)}
+                                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow hover:bg-red-600"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-slate-500">
+                      Jami: {form.images.length + newImagePreviews.length}/{MAX_PRODUCT_IMAGES}
+                    </p>
+                  </div>
                 )}
               </div>
 

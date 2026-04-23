@@ -4,7 +4,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Menu, X, LogOut, LayoutDashboard, Package, PhoneCall, Users, Tag } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard, Package, PhoneCall, Users, Tag, ClipboardList } from "lucide-react";
 
 export default function AdminLayout({
   children
@@ -55,6 +55,7 @@ export default function AdminLayout({
     { icon: Package, label: "Products", href: "/admin/products", color: "text-green-600" },
     { icon: Tag, label: "Kategoriyalar", href: "/admin/categories", color: "text-teal-600" },
     { icon: PhoneCall, label: "Leads", href: "/admin/leads", color: "text-orange-600" },
+    { icon: ClipboardList, label: "Audit", href: "/admin/audit", color: "text-slate-600" },
     ...(userRole === "SUPERADMIN"
       ? [{ icon: Users, label: "Users", href: "/admin/users", color: "text-purple-600" }]
       : []

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Trash2, X, AlertTriangle, CheckCircle } from "lucide-react";
+import { Plus, Trash2, X, AlertTriangle, RotateCcw } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -9,6 +9,7 @@ interface Category {
   id: string;
   nameUz: string;
   nameRu: string;
+  deletedAt?: string | null;
   _count?: { products: number };
 }
 
@@ -30,8 +31,9 @@ export default function CategoriesPage() {
   const [dialog, setDialog] = useState<DialogState>({
     open: false, type: "error", title: "", message: ""
   });
+  const [showArchived, setShowArchived] = useState(false);
 
-  useEffect(() => { fetchCategories(); }, []);
+  useEffect(() => { fetchCategories(); }, [showArchived]);
 
   const showError = (title: string, message: string) => {
     setDialog({ open: true, type: "error", title, message });
@@ -44,7 +46,7 @@ export default function CategoriesPage() {
   const fetchCategories = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/categories`, { credentials: "include" });
+      const res = await fetch(`${API_URL}/api/categories${showArchived ? "?includeDeleted=1" : ""}`, { credentials: "include" });
       const data = await res.json();
       if (data.success) setCategories(data.data);
     } catch (err) {
@@ -111,6 +113,21 @@ export default function CategoriesPage() {
     );
   };
 
+  const handleRestore = async (id: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/categories`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: "restore" }),
+      });
+      const data = await res.json();
+      if (data.success) fetchCategories();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -128,6 +145,12 @@ export default function CategoriesPage() {
       </div>
 
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+        <div className="px-6 py-3 border-b border-slate-200">
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+            Archived kategoriyalarni ko'rsatish
+          </label>
+        </div>
         <table className="w-full">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
@@ -143,17 +166,26 @@ export default function CategoriesPage() {
             ) : categories.length === 0 ? (
               <tr><td colSpan={4} className="text-center py-12 text-slate-400">Kategoriya topilmadi</td></tr>
             ) : categories.map((cat) => (
-              <tr key={cat.id} className="hover:bg-slate-50 transition">
+              <tr key={cat.id} className={`hover:bg-slate-50 transition ${cat.deletedAt ? "opacity-60" : ""}`}>
                 <td className="px-6 py-4 text-sm font-medium text-slate-900">{cat.nameUz}</td>
                 <td className="px-6 py-4 text-sm text-slate-600">{cat.nameRu}</td>
                 <td className="px-6 py-4 text-sm text-slate-600">{cat._count?.products ?? 0} ta</td>
                 <td className="px-6 py-4 text-right">
-                  <button
-                    onClick={() => handleDelete(cat.id, cat._count?.products ?? 0)}
-                    className="p-2 hover:bg-red-50 text-red-600 rounded transition"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  {cat.deletedAt ? (
+                    <button
+                      onClick={() => handleRestore(cat.id)}
+                      className="p-2 hover:bg-emerald-50 text-emerald-600 rounded transition"
+                    >
+                      <RotateCcw size={18} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleDelete(cat.id, cat._count?.products ?? 0)}
+                      className="p-2 hover:bg-red-50 text-red-600 rounded transition"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

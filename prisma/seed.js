@@ -128,7 +128,8 @@ async function main() {
         name: "Test Lead",
         phone: "+998901234567",
         message: "Men eshik xarid qilmoqchiman",
-        status: "NOT_CALLED"
+        status: "NEW",
+        source: "website"
       }
     });
 
