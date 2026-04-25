@@ -18,8 +18,8 @@ const nextConfig = {
           { key: "Access-Control-Allow-Origin", value: "*" }
         ]
       }
+      // API uchun headers YO'Q — middleware hal qiladi
     ];
   }
 };
-
 module.exports = nextConfig;

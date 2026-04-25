@@ -4,7 +4,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Menu, X, LogOut, LayoutDashboard, Package, PhoneCall, Users, Tag, ClipboardList } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard, Package, PhoneCall, Users, Tag, ClipboardList, MessageSquare } from "lucide-react";
 
 export default function AdminLayout({
   children
@@ -53,6 +53,7 @@ export default function AdminLayout({
   const navItems = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/admin", color: "text-blue-600" },
     { icon: Package, label: "Products", href: "/admin/products", color: "text-green-600" },
+    { icon: MessageSquare, label: "Comments", href: "/admin/comments", color: "text-amber-600" },
     { icon: Tag, label: "Kategoriyalar", href: "/admin/categories", color: "text-teal-600" },
     { icon: PhoneCall, label: "Leads", href: "/admin/leads", color: "text-orange-600" },
     { icon: ClipboardList, label: "Audit", href: "/admin/audit", color: "text-slate-600" },

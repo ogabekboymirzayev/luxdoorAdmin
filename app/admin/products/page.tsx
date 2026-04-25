@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, Search, X, AlertTriangle, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Edit2, Search, X, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const MAX_PRODUCT_IMAGES = 4;
@@ -22,6 +22,13 @@ interface Product {
   attributes: Record<string, string>;
   deletedAt?: string | null;
   category?: { id: string; nameUz: string; nameRu: string };
+}
+
+interface Pagination {
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
 }
 
 interface Category {
@@ -81,6 +88,9 @@ export default function ProductsPage() {
     open: false, type: "error", title: "", message: ""
   });
   const [showArchived, setShowArchived] = useState(false);
+  const [pagination, setPagination] = useState<Pagination>({ total: 0, page: 1, limit: 10, pages: 1 });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     fetchCategories();
@@ -97,9 +107,25 @@ export default function ProductsPage() {
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/products?limit=100${showArchived ? "&includeDeleted=1" : ""}`, { credentials: "include" });
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(pageSize),
+      });
+
+      if (search.trim()) {
+        params.set("search", search.trim());
+      }
+
+      if (showArchived) {
+        params.set("includeDeleted", "1");
+      }
+
+      const res = await fetch(`${API_URL}/api/products?${params.toString()}`, { credentials: "include" });
       const data = await res.json();
-      if (data.success) setProducts(data.data.products);
+      if (data.success) {
+        setProducts(data.data.products);
+        setPagination(data.data.pagination);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -109,7 +135,7 @@ export default function ProductsPage() {
 
   useEffect(() => {
     fetchProducts();
-  }, [showArchived]);
+  }, [page, pageSize, search, showArchived]);
 
   const fetchCategories = async () => {
     try {
@@ -328,12 +354,6 @@ export default function ProductsPage() {
     setForm({ ...form, attributes: attrs });
   };
 
-  const filtered = products.filter(
-    (p) =>
-      p.nameUz.toLowerCase().includes(search.toLowerCase()) ||
-      p.nameRu.toLowerCase().includes(search.toLowerCase())
-  );
-
   const totalValue = products.reduce((s, p) => s + Number(p.price), 0);
   const avgPrice = products.length ? Math.round(totalValue / products.length) : 0;
 
@@ -345,23 +365,48 @@ export default function ProductsPage() {
           <h1 className="text-3xl font-bold text-slate-900">Products</h1>
           <p className="text-slate-600 mt-1">Manage your product catalog</p>
         </div>
-        <button onClick={openAdd}
-          className="flex items-center gap-2 bg-gradient-to-r from-primary to-accent text-white px-6 py-2 rounded-lg hover:shadow-lg transition font-medium">
-          <Plus size={20} />
-          Add Product
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <span>Sahifada</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPage(1);
+                setPageSize(Number(e.target.value));
+              }}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+            >
+              {[10, 25, 50, 100].map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button onClick={openAdd}
+            className="flex items-center gap-2 bg-gradient-to-r from-primary to-accent text-white px-6 py-2 rounded-lg hover:shadow-lg transition font-medium">
+            <Plus size={20} />
+            Add Product
+          </button>
+        </div>
       </div>
 
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-3 text-slate-400" size={20} />
         <input type="text" placeholder="Search products..." value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setPage(1);
+            setSearch(e.target.value);
+          }}
           className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary outline-none transition" />
       </div>
 
       <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-        <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+        <input type="checkbox" checked={showArchived} onChange={(e) => {
+          setPage(1);
+          setShowArchived(e.target.checked);
+        }} />
         Archived mahsulotlarni ko'rsatish
       </label>
 
@@ -381,7 +426,7 @@ export default function ProductsPage() {
             <tbody className="divide-y divide-slate-200">
               {loading ? (
                 <tr><td colSpan={5} className="text-center py-12 text-slate-400">Yuklanmoqda...</td></tr>
-              ) : filtered.map((product) => {
+              ) : products.map((product) => {
                 const imgUrl = product.images?.[0]
                   ? product.images[0].startsWith("http")
                     ? product.images[0]
@@ -431,18 +476,45 @@ export default function ProductsPage() {
             </tbody>
           </table>
         </div>
-        {!loading && filtered.length === 0 && (
+        {!loading && products.length === 0 && (
           <div className="text-center py-12">
             <p className="text-slate-600">Mahsulot topilmadi</p>
           </div>
         )}
+
+        <div className="flex flex-col gap-3 border-t border-slate-200 px-6 py-4 md:flex-row md:items-center md:justify-between">
+          <p className="text-sm text-slate-600">
+            Jami {pagination.total} ta mahsulotdan {products.length} tasi ko'rsatilmoqda
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+              disabled={page <= 1}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-40"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Oldingi
+            </button>
+            <span className="px-3 py-2 text-sm text-slate-600">
+              {pagination.page} / {pagination.pages}
+            </span>
+            <button
+              onClick={() => setPage((prev) => Math.min(pagination.pages, prev + 1))}
+              disabled={page >= pagination.pages}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-40"
+            >
+              Keyingi
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <p className="text-blue-900 text-sm font-medium">Jami mahsulotlar</p>
-          <p className="text-2xl font-bold text-blue-600 mt-1">{products.length} ta</p>
+          <p className="text-2xl font-bold text-blue-600 mt-1">{pagination.total || products.length} ta</p>
         </div>
         <div className="bg-green-50 border border-green-200 rounded-lg p-4">
           <p className="text-green-900 text-sm font-medium">Umumiy qiymat</p>

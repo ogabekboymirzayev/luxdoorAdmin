@@ -70,6 +70,22 @@ async function createAuditLog(
         metadata: metadata || undefined,
       },
     });
+
+    const staleLogs = await prisma.auditLog.findMany({
+      orderBy: { createdAt: "desc" },
+      skip: 50,
+      select: { id: true },
+    });
+
+    if (staleLogs.length > 0) {
+      await prisma.auditLog.deleteMany({
+        where: {
+          id: {
+            in: staleLogs.map((log) => log.id),
+          },
+        },
+      });
+    }
   } catch (error) {
     // Audit logging must never break business flow.
     console.error("[AUDIT] Failed to write log:", error);
@@ -457,7 +473,7 @@ export async function getProducts(
           total,
           page,
           limit,
-          pages: Math.ceil(total / limit)
+          pages: Math.max(1, Math.ceil(total / limit))
         }
       }
     };
@@ -515,8 +531,29 @@ export async function deleteComment(
   try {
     await requireRole("ADMIN");
 
+    const existingComment = await prisma.comment.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        productId: true,
+        authorName: true,
+      },
+    });
+
+    if (!existingComment) {
+      return {
+        success: false,
+        error: "Comment not found",
+      };
+    }
+
     await prisma.comment.delete({
       where: { id }
+    });
+
+    await createAuditLog("COMMENT", id, "DELETE", {
+      productId: existingComment.productId,
+      authorName: existingComment.authorName,
     });
 
     console.log(`[COMMENTS] Comment deleted: ${id}`);
@@ -559,7 +596,7 @@ export async function getComments(
           total,
           page,
           limit,
-          pages: Math.ceil(total / limit)
+          pages: Math.max(1, Math.ceil(total / limit))
         }
       }
     };
@@ -744,7 +781,7 @@ export async function getLeads(
           total,
           page,
           limit,
-          pages: Math.ceil(total / limit)
+          pages: Math.max(1, Math.ceil(total / limit))
         }
       }
     };
@@ -909,7 +946,7 @@ export async function getAuditLogs(
           total,
           page,
           limit,
-          pages: Math.ceil(total / limit),
+          pages: Math.max(1, Math.ceil(total / limit)),
         },
       },
     };

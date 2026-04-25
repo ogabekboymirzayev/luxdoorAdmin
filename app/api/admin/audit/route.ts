@@ -5,7 +5,7 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get("page") || "1", 10);
-    const limit = parseInt(searchParams.get("limit") || "30", 10);
+    const limit = parseInt(searchParams.get("limit") || "10", 10);
 
     const result = await getAuditLogs(page, limit);
 
