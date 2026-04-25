@@ -67,7 +67,8 @@ async function createAuditLog(
         action,
         actorId: actor.actorId,
         actorUsername: actor.actorUsername,
-        metadata: metadata || undefined,
+        // metadata: metadata || undefined,
+        metadata: metadata ? JSON.parse(JSON.stringify(metadata)) : undefined,
       },
     });
 
