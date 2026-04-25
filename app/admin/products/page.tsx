@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, Search, X, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Edit2, Search, X, AlertTriangle, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const MAX_PRODUCT_IMAGES = 4;
