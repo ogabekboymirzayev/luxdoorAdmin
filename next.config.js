@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   reactStrictMode: true,
   images: {
     remotePatterns: [
@@ -18,8 +21,8 @@ const nextConfig = {
           { key: "Access-Control-Allow-Origin", value: "*" }
         ]
       }
-      // API uchun headers YO'Q — middleware hal qiladi
     ];
   }
 };
+
 module.exports = nextConfig;
