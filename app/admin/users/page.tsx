@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Trash2, Shield, User } from "lucide-react";
+import { Plus, Trash2, Shield, User, Eye, EyeOff } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -20,6 +20,7 @@ export default function UsersPage() {
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     fetchAdmins();
@@ -67,6 +68,7 @@ export default function UsersPage() {
         setAdmins((prev) => [...prev, data.data]);
         setFormData({ username: "", password: "" });
         setShowForm(false);
+        setShowPassword(false);
       } else {
         setFormError(data.error || "Admin yaratishda xatolik");
       }
@@ -106,7 +108,7 @@ export default function UsersPage() {
           <p className="text-slate-600 mt-1">SuperAdmin only - Create and manage admin accounts</p>
         </div>
         <button
-          onClick={() => { setShowForm(!showForm); setFormError(""); }}
+          onClick={() => { setShowForm(!showForm); setFormError(""); setShowPassword(false); }}
           className="flex items-center gap-2 bg-gradient-to-r from-primary to-accent text-white px-6 py-2 rounded-lg hover:shadow-lg transition font-medium"
         >
           <Plus size={20} />
@@ -141,14 +143,23 @@ export default function UsersPage() {
               <label className="block text-sm font-semibold text-slate-900 mb-2">
                 Parol
               </label>
-              <input
-                type="password"
-                placeholder="Min 8 ta belgi, katta harf, raqam, belgi"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="w-full border border-slate-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition"
-                required
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Min 8 ta belgi, katta harf, raqam, belgi"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className="w-full border border-slate-200 rounded-lg px-4 py-2 pr-12 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 transition"
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
             </div>
             <div className="flex gap-2">
               <button
@@ -160,7 +171,7 @@ export default function UsersPage() {
               </button>
               <button
                 type="button"
-                onClick={() => { setShowForm(false); setFormError(""); }}
+                onClick={() => { setShowForm(false); setFormError(""); setShowPassword(false); }}
                 className="flex-1 bg-slate-200 text-slate-900 py-2 rounded-lg hover:bg-slate-300 transition font-medium"
               >
                 Cancel
