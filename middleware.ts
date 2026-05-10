@@ -6,6 +6,8 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://10.115.115.60:3000',
   'https://musadoors.netlify.app',
+  'https://musadoors.uz',
+  'https://www.musadoors.uz',
 ]
 
 function addCorsHeaders(req: NextRequestWithAuth, res: NextResponse) {

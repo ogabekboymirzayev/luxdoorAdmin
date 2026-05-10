@@ -91,6 +91,7 @@ export default function ProductsPage() {
   const [pagination, setPagination] = useState<Pagination>({ total: 0, page: 1, limit: 10, pages: 1 });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [totalStats, setTotalStats] = useState({ totalValue: 0, avgPrice: 0 });
 
   useEffect(() => {
     fetchCategories();
@@ -125,6 +126,15 @@ export default function ProductsPage() {
       if (data.success) {
         setProducts(data.data.products);
         setPagination(data.data.pagination);
+      }
+      // Barcha mahsulotlar statistikasi
+      const statsRes = await fetch(`${API_URL}/api/products?page=1&limit=10000`, { credentials: "include" });
+      const statsData = await statsRes.json();
+      if (statsData.success) {
+        const allProducts = statsData.data.products;
+        const tv = allProducts.reduce((s: number, p: {price: string}) => s + Number(p.price), 0);
+        const avg = allProducts.length ? Math.round(tv / allProducts.length) : 0;
+        setTotalStats({ totalValue: tv, avgPrice: avg });
       }
     } catch (err) {
       console.error(err);
@@ -291,7 +301,12 @@ export default function ProductsPage() {
           prev.forEach((url) => URL.revokeObjectURL(url));
           return [];
         });
-        fetchProducts();
+        if (editProduct) {
+          setProducts(prev => prev.map(p => p.id === editProduct.id ? { ...p, ...data.data } : p));
+        } else {
+          setProducts(prev => [data.data, ...prev]);
+          setPagination(prev => ({ ...prev, total: prev.total + 1 }));
+        }
       } else {
         showError("Xato", data.error || "Xato yuz berdi");
       }
@@ -314,7 +329,10 @@ export default function ProductsPage() {
             credentials: "include",
           });
           const data = await res.json();
-          if (data.success) fetchProducts();
+          if (data.success) {
+            setProducts(prev => prev.filter(p => p.id !== id));
+            setPagination(prev => ({ ...prev, total: prev.total - 1 }));
+          }
         } catch (err) {
           console.error(err);
         }
@@ -354,8 +372,8 @@ export default function ProductsPage() {
     setForm({ ...form, attributes: attrs });
   };
 
-  const totalValue = products.reduce((s, p) => s + Number(p.price), 0);
-  const avgPrice = products.length ? Math.round(totalValue / products.length) : 0;
+  const totalValue = totalStats.totalValue;
+  const avgPrice = totalStats.avgPrice;
 
   return (
     <div className="space-y-6">
@@ -376,9 +394,9 @@ export default function ProductsPage() {
               }}
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
             >
-              {[10, 25, 50, 100].map((option) => (
+              {[10, 25, 50, 100, 1000].map((option) => (
                 <option key={option} value={option}>
-                  {option}
+                  {option === 1000 ? "Hammasi" : option}
                 </option>
               ))}
             </select>

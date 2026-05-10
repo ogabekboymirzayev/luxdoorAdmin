@@ -8,6 +8,8 @@ const ALLOWED_ORIGINS = [
   "http://10.115.115.60:3000",
   "http://10.115.115.60:3001",
   "https://musadoors.netlify.app",
+  "https://musadoors.uz",
+  "https://www.musadoors.uz",
 ];
 
 export function setCorsHeaders(response: NextResponse, request?: NextRequest) {
